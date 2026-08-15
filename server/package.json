@@ -1,0 +1,15 @@
+{
+  "name": "sport-car-javid-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "latest",
+    "cors": "latest",
+    "dotenv": "latest",
+    "zarinpal-node-sdk": "latest"
+  }
+}
