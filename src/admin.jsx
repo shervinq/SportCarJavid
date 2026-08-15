@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { LayoutDashboard, Package, ShoppingBag, Users, Tags, LogOut, BarChart3, RefreshCw, CircleDollarSign, TrendingUp, Boxes, ClipboardList, AlertTriangle, ArrowLeft, Car } from 'lucide-react';
 import { api, toman, statusFa } from './shared.js';
 import { AdminProducts, AdminOrders, AdminUsers, AdminCoupons, AdminReports } from './admin-panels.jsx';
-import { AuthModal } from './account.jsx';
 
 export function Admin({user,setUser,onExit,notify}){
   const [tab,setTab]=useState('dash');
@@ -11,7 +10,7 @@ export function Admin({user,setUser,onExit,notify}){
   const [data,setData]=useState({});
   const load=async t=>{setLoading(true);try{let d;if(t==='dash')d=await api('/api/admin/dashboard');if(t==='products')d=await api('/api/admin/products');if(t==='orders')d=await api('/api/admin/orders');if(t==='users')d=await api('/api/admin/users');if(t==='coupons')d=await api('/api/admin/coupons');if(t==='reports')d=await api('/api/admin/reports/sales?days=30');setData(d||{});}catch(e){if(e.message.includes('ادمین')||e.message.includes('ورود'))setAdmin(null);else notify(e.message)}finally{setLoading(false)}};
   useEffect(()=>{if(admin)load(tab);else setLoading(false)},[admin,tab]);
-  if(!admin)return <div className="admin-login-page"><button className="back-store" onClick={onExit}><ArrowLeft/> بازگشت به فروشگاه</button><AuthModal adminOnly onClose={onExit} onAuthed={u=>{setAdmin(u);setUser(u)}}/></div>;
+  if(!admin)return <div className="admin-login-page"><div className="admin-access-denied"><AlertTriangle/><h2>دسترسی مدیریت فعال نیست</h2><p>برای ورود به پنل، ابتدا از بخش حساب کاربری سایت با حساب مدیر وارد شوید.</p><button className="primary" onClick={onExit}><ArrowLeft/> بازگشت به فروشگاه</button></div></div>;
   const adminLogout=async()=>{await api('/api/auth/logout',{method:'POST'});setAdmin(null);setUser(null);onExit()};
   return <div className="production-admin"><aside><div className="brand"><b>SJ</b><span><strong>اسپرت جاوید</strong><small>پنل مدیریت</small></span></div>{[['dash',LayoutDashboard,'داشبورد'],['products',Package,'محصولات'],['orders',ShoppingBag,'سفارش‌ها'],['users',Users,'مشتریان'],['coupons',Tags,'تخفیف‌ها'],['reports',BarChart3,'گزارش‌ها']].map(([id,I,t])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}><I/>{t}</button>)}<button className="logout" onClick={onExit}><Car/> فروشگاه</button><button className="logout danger" onClick={adminLogout}><LogOut/> خروج</button></aside><main><header><div><span>مدیریت یکپارچه فروشگاه</span><h2>سلام، {admin.name}</h2></div><button className="icon-refresh" onClick={()=>load(tab)}><RefreshCw className={loading?'spin':''}/></button></header>{loading?<div className="admin-loading"><RefreshCw className="spin"/> در حال دریافت اطلاعات...</div>:<>{tab==='dash'&&<AdminDashboard data={data}/>} {tab==='products'&&<AdminProducts data={data} reload={()=>load('products')} notify={notify}/>} {tab==='orders'&&<AdminOrders data={data} reload={()=>load('orders')} notify={notify}/>} {tab==='users'&&<AdminUsers data={data}/>} {tab==='coupons'&&<AdminCoupons data={data} reload={()=>load('coupons')} notify={notify}/>} {tab==='reports'&&<AdminReports data={data}/>}</>}</main></div>;
 }

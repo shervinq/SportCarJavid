@@ -3,7 +3,9 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js"
@@ -17,6 +19,7 @@
     "express-rate-limit": "^8.0.1",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
-    "zarinpal-node-sdk": "^2.2.0"
+    "zarinpal-node-sdk": "^2.2.0",
+    "multer": "^2.2.0"
   }
 }

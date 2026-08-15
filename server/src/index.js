@@ -18,6 +18,7 @@ releaseExpiredOrders();
 setInterval(() => { try { releaseExpiredOrders(); } catch (e) { console.error('Order cleanup failed', e); } }, 5 * 60 * 1000).unref();
 
 const app = express();
+fs.mkdirSync(config.uploadDir, { recursive: true });
 if (config.isProduction) app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
@@ -25,6 +26,7 @@ app.use(cors({ origin: config.clientOrigin, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 app.use(optionalAuth);
+app.use('/uploads', express.static(config.uploadDir, { maxAge: config.isProduction ? '7d' : 0, immutable: false }));
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);

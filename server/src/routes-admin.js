@@ -1,9 +1,48 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import multer from 'multer';
 import { db, audit, releaseExpiredOrders, restoreOrderStock } from './db.js';
 import { requireAdmin } from './auth.js';
 import { cleanText, toInt } from './utils.js';
+import { config } from './config.js';
 import { bool, getOrderForUser, productDto } from './store-service.js';
 
+
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 0 },
+  fileFilter: (_req,file,cb) => cb(null, ['image/jpeg','image/png','image/webp'].includes(file.mimetype))
+});
+const imageExt = { 'image/jpeg':'jpg', 'image/png':'png', 'image/webp':'webp' };
+const hasValidImageSignature = file => {
+  const b=file?.buffer;
+  if(!b || b.length<12) return false;
+  if(file.mimetype==='image/jpeg') return b[0]===0xff && b[1]===0xd8 && b[2]===0xff;
+  if(file.mimetype==='image/png') return b.subarray(0,8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
+  if(file.mimetype==='image/webp') return b.subarray(0,4).toString()==='RIFF' && b.subarray(8,12).toString()==='WEBP';
+  return false;
+};
+const normalizeImages = value => {
+  const raw=Array.isArray(value)?value:[];
+  return [...new Set(raw.map(v=>cleanText(v,500)).filter(v=>v.startsWith('/uploads/') || /^https:\/\//i.test(v)))].slice(0,8);
+};
+
 export function registerAdminRoutes(app) {
+app.post('/api/admin/uploads/product-image', requireAdmin, (req,res,next) => {
+  imageUpload.single('image')(req,res,err => {
+    if(err) return res.status(400).json({message: err.code==='LIMIT_FILE_SIZE' ? 'حجم تصویر حداکثر ۵ مگابایت است.' : 'فایل تصویر معتبر نیست.'});
+    try {
+      if(!req.file || !hasValidImageSignature(req.file)) return res.status(400).json({message:'فقط تصویر واقعی JPG، PNG یا WEBP قابل آپلود است.'});
+      fs.mkdirSync(config.uploadDir,{recursive:true});
+      const filename=`product-${Date.now()}-${crypto.randomUUID()}.${imageExt[req.file.mimetype]}`;
+      fs.writeFileSync(path.join(config.uploadDir,filename),req.file.buffer,{flag:'wx'});
+      const url=`/uploads/${filename}`;
+      audit(req.user.id,'upload','product_image',filename,{size:req.file.size,mime:req.file.mimetype});
+      res.status(201).json({url});
+    } catch(e) { next(e); }
+  });
+});
 app.get('/api/admin/dashboard', requireAdmin, (_req,res) => {
   releaseExpiredOrders();
   const revenue=Number(db.prepare("SELECT COALESCE(SUM(total),0) AS v FROM orders WHERE payment_status='paid'").get().v);
@@ -22,7 +61,9 @@ app.post('/api/admin/products', requireAdmin, (req,res) => {
   const p=req.body||{}; const sku=cleanText(p.sku,60).toUpperCase(),title=cleanText(p.title,160),category=cleanText(p.category,50),price=toInt(p.price,-1),stock=toInt(p.stock,-1);
   if(!sku||title.length<2||!category||price<0||stock<0)return res.status(400).json({message:'SKU، عنوان، دسته، قیمت و موجودی معتبر لازم است.'});
   try{
-    const r=db.prepare(`INSERT INTO products(sku,title,category,price,old_price,stock,badge,emoji,image_url,compatibility,description,rating,featured,is_active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(sku,title,category,price,p.oldPrice==null?null:toInt(p.oldPrice),stock,cleanText(p.badge,80),cleanText(p.emoji,20)||'🛞',cleanText(p.imageUrl,500),cleanText(p.compat,200),cleanText(p.desc,1000),Number(p.rating||5),bool(p.featured)?1:0,p.active===false?0:1);
+    const images=normalizeImages([p.imageUrl,...(Array.isArray(p.imageUrls)?p.imageUrls:[])]); const imageUrl=images[0] || '';
+    const normalizedGallery=images;
+    const r=db.prepare(`INSERT INTO products(sku,title,category,price,old_price,stock,badge,emoji,image_url,gallery_json,compatibility,description,rating,featured,is_active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(sku,title,category,price,p.oldPrice==null?null:toInt(p.oldPrice),stock,cleanText(p.badge,80),cleanText(p.emoji,20)||'🛞',imageUrl,JSON.stringify(normalizedGallery),cleanText(p.compat,200),cleanText(p.desc,3000),Number(p.rating||5),bool(p.featured)?1:0,p.active===false?0:1);
     audit(req.user.id,'create','product',Number(r.lastInsertRowid),{sku});
     res.status(201).json({product:productDto(db.prepare('SELECT * FROM products WHERE id=?').get(Number(r.lastInsertRowid)))});
   }catch(e){if(String(e.message).includes('UNIQUE'))return res.status(409).json({message:'SKU تکراری است.'});throw e;}
@@ -30,7 +71,9 @@ app.post('/api/admin/products', requireAdmin, (req,res) => {
 app.patch('/api/admin/products/:id', requireAdmin, (req,res) => {
   const id=toInt(req.params.id),current=db.prepare('SELECT * FROM products WHERE id=?').get(id); if(!current)return res.status(404).json({message:'محصول پیدا نشد.'});
   const p={...productDto(current),...req.body};
-  db.prepare(`UPDATE products SET sku=?,title=?,category=?,price=?,old_price=?,stock=?,badge=?,emoji=?,image_url=?,compatibility=?,description=?,rating=?,featured=?,is_active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(cleanText(p.sku,60).toUpperCase(),cleanText(p.title,160),cleanText(p.category,50),Math.max(0,toInt(p.price)),p.oldPrice==null?null:Math.max(0,toInt(p.oldPrice)),Math.max(0,toInt(p.stock)),cleanText(p.badge,80),cleanText(p.emoji,20)||'🛞',cleanText(p.imageUrl,500),cleanText(p.compat,200),cleanText(p.desc,1000),Number(p.rating||5),bool(p.featured)?1:0,p.active===false?0:1,id);
+  const images=normalizeImages([p.imageUrl,...(Array.isArray(p.imageUrls)?p.imageUrls:Array.isArray(p.images)?p.images:[])]); const imageUrl=images[0] || '';
+  const normalizedGallery=images;
+  db.prepare(`UPDATE products SET sku=?,title=?,category=?,price=?,old_price=?,stock=?,badge=?,emoji=?,image_url=?,gallery_json=?,compatibility=?,description=?,rating=?,featured=?,is_active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(cleanText(p.sku,60).toUpperCase(),cleanText(p.title,160),cleanText(p.category,50),Math.max(0,toInt(p.price)),p.oldPrice==null?null:Math.max(0,toInt(p.oldPrice)),Math.max(0,toInt(p.stock)),cleanText(p.badge,80),cleanText(p.emoji,20)||'🛞',imageUrl,JSON.stringify(normalizedGallery),cleanText(p.compat,200),cleanText(p.desc,3000),Number(p.rating||5),bool(p.featured)?1:0,p.active===false?0:1,id);
   audit(req.user.id,'update','product',id,{sku:p.sku});
   res.json({product:productDto(db.prepare('SELECT * FROM products WHERE id=?').get(id))});
 });

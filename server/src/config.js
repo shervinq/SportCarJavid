@@ -56,6 +56,7 @@ export const config = {
   publicBaseUrl: String(publicBaseUrl).replace(/\/$/, ''),
   clientOrigin,
   databasePath: path.resolve(serverRoot, process.env.DATABASE_PATH || './data/store.db'),
+  uploadDir: path.resolve(serverRoot, process.env.UPLOAD_DIR || './data/uploads'),
   jwtSecret,
   cookieSecure,
   payment: {

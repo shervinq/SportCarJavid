@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS products (
   badge TEXT DEFAULT '',
   emoji TEXT DEFAULT '🛞',
   image_url TEXT DEFAULT '',
+  gallery_json TEXT NOT NULL DEFAULT '[]',
   compatibility TEXT DEFAULT 'تمام خودروها',
   description TEXT DEFAULT '',
   rating REAL NOT NULL DEFAULT 5,
@@ -125,7 +126,12 @@ CREATE INDEX IF NOT EXISTS idx_products_category ON products(category, is_active
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_one_paid_per_order ON payments(order_id) WHERE status='paid';
 `);
+
+try { db.exec("ALTER TABLE products ADD COLUMN gallery_json TEXT NOT NULL DEFAULT '[]'"); } catch (error) {
+  if (!String(error?.message || error).includes('duplicate column name')) throw error;
+}
 
 export function transaction(fn) {
   db.exec('BEGIN IMMEDIATE');

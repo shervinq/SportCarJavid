@@ -1,7 +1,14 @@
 import { db } from './db.js';
 
 export const bool = v => v === true || v === 1 || v === '1' || v === 'true';
-export const productDto = p => ({ id:Number(p.id), sku:p.sku, title:p.title, category:p.category, price:Number(p.price), oldPrice:p.old_price == null ? null : Number(p.old_price), stock:Number(p.stock), badge:p.badge, emoji:p.emoji, imageUrl:p.image_url, compat:p.compatibility, desc:p.description, rating:Number(p.rating), featured:!!p.featured, active:!!p.is_active });
+export const productDto = p => {
+  let gallery=[];
+  try { gallery=JSON.parse(p.gallery_json || '[]'); } catch { gallery=[]; }
+  gallery=Array.isArray(gallery) ? gallery.filter(Boolean).slice(0,8) : [];
+  const primary=p.image_url || gallery[0] || '';
+  const images=[primary,...gallery].filter((url,index,arr)=>url && arr.indexOf(url)===index).slice(0,8);
+  return { id:Number(p.id), sku:p.sku, title:p.title, category:p.category, price:Number(p.price), oldPrice:p.old_price == null ? null : Number(p.old_price), stock:Number(p.stock), badge:p.badge, emoji:p.emoji, imageUrl:primary, images, compat:p.compatibility, desc:p.description, rating:Number(p.rating), featured:!!p.featured, active:!!p.is_active };
+};
 
 export function calculateCoupon(code, subtotal) {
   if (!code) return { discount:0, coupon:null };
