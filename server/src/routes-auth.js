@@ -2,6 +2,9 @@ import bcrypt from 'bcryptjs';
 import { db } from './db.js';
 import { clearSessionCookie, requireAuth, setSessionCookie, signSession } from './auth.js';
 import { cleanText, isEmail, normalizeEmail, normalizePhone, publicUser } from './utils.js';
+import { sendSmsTemplate } from './sms.js';
+
+const otpStore = new Map();
 
 export function registerAuthRoutes(app, authLimiter) {
 app.post('/api/auth/register', authLimiter, (req,res) => {
@@ -23,6 +26,30 @@ app.post('/api/auth/login', authLimiter, (req,res) => {
   const password = String(req.body?.password || '');
   const user = db.prepare('SELECT * FROM users WHERE lower(email)=? OR phone=? LIMIT 1').get(identity, normalizePhone(identity));
   if (!user || !user.is_active || !bcrypt.compareSync(password, user.password_hash)) return res.status(401).json({ message:'ایمیل/موبایل یا رمز عبور نادرست است.' });
+  setSessionCookie(res, signSession(user));
+  res.json({ user: publicUser(user) });
+});
+
+app.post('/api/auth/request-otp', authLimiter, async (req,res) => {
+  const phone = normalizePhone(req.body?.phone);
+  if (!phone) return res.status(400).json({ message:'شماره موبایل معتبر نیست.' });
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  otpStore.set(phone, { code, expires: Date.now() + 120000 });
+  await sendSmsTemplate(phone, code);
+  res.json({ success:true });
+});
+
+app.post('/api/auth/verify-otp', authLimiter, (req,res) => {
+  const phone = normalizePhone(req.body?.phone);
+  const code = String(req.body?.code || '');
+  const saved = otpStore.get(phone);
+  if (!saved || saved.expires < Date.now() || saved.code !== code) return res.status(400).json({ message:'کد تایید اشتباه یا منقضی شده است.' });
+  otpStore.delete(phone);
+  let user = db.prepare('SELECT * FROM users WHERE phone=? LIMIT 1').get(phone);
+  if (!user) {
+    const result = db.prepare('INSERT INTO users(name,phone,password_hash,role) VALUES(?,?,?,?)').run(phone, phone, bcrypt.hashSync(code, 10), 'customer');
+    user = db.prepare('SELECT * FROM users WHERE id=?').get(Number(result.lastInsertRowid));
+  }
   setSessionCookie(res, signSession(user));
   res.json({ user: publicUser(user) });
 });
