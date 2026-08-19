@@ -22,3 +22,5 @@ jobs:
         run: npm run build
       - name: Check backend syntax
         run: for f in server/src/*.js; do node --check "$f"; done
+      - name: Run backend tests
+        run: node --test server/src/*.test.js

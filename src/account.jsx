@@ -1,11 +1,64 @@
 import React, { useEffect, useState } from 'react';
-import { Wallet, CheckCircle2, AlertTriangle, Phone, MapPin, ShieldCheck, LockKeyhole, UserPlus, LogIn, X, RefreshCw, ShoppingBag, User, Save, LogOut } from 'lucide-react';
+import { Wallet, CheckCircle2, AlertTriangle, Phone, MapPin, ShieldCheck, LockKeyhole, UserPlus, LogIn, X, RefreshCw, ShoppingBag, User, Save, LogOut, KeyRound, MessageSquareText, ArrowRight } from 'lucide-react';
 import { api, toman, dateFa, statusFa } from './shared.js';
+import './sms.css';
 
 export function AuthModal({onClose,onAuthed}){
-  const [mode,setMode]=useState('login'),[busy,setBusy]=useState(false),[error,setError]=useState('');
-  const submit=async e=>{e.preventDefault();setBusy(true);setError('');const f=new FormData(e.currentTarget);try{const body=mode==='register'?{name:f.get('name'),email:f.get('email'),phone:f.get('phone'),password:f.get('password')}:{identity:f.get('identity'),password:f.get('password')};const d=await api(`/api/auth/${mode}`,{method:'POST',body:JSON.stringify(body)});onAuthed(d.user);}catch(e){setError(e.message)}finally{setBusy(false)}};
-  return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose?.()}><div className="auth-card"><button className="modal-close" onClick={onClose}><X/></button><div className="auth-logo">SJ</div><h2>{mode==='login'?'ورود به حساب':'ساخت حساب کاربری'}</h2><p>سفارش‌ها و وضعیت خریدهایت را از حساب کاربری پیگیری کن.</p>{error&&<div className="form-error"><AlertTriangle/> {error}</div>}<form onSubmit={submit}>{mode==='register'&&<><label>نام و نام خانوادگی<input name="name" required minLength="2" autoComplete="name"/></label><label>شماره موبایل<input name="phone" placeholder="0912..." autoComplete="tel"/></label><label>ایمیل<input name="email" type="email" required autoComplete="email"/></label></>}{mode==='login'&&<label>ایمیل یا شماره موبایل<input name="identity" required autoComplete="username"/></label>}<label>رمز عبور<input name="password" type="password" required minLength="8" autoComplete={mode==='login'?'current-password':'new-password'}/></label><button className="primary auth-submit" disabled={busy}>{busy?<RefreshCw className="spin"/>:mode==='login'?<LogIn/>:<UserPlus/>}{mode==='login'?'ورود':'ثبت‌نام'}</button></form><button className="auth-switch" onClick={()=>{setMode(mode==='login'?'register':'login');setError('')}}>{mode==='login'?'حساب نداری؟ ثبت‌نام کن':'حساب داری؟ وارد شو'}</button></div></div>;
+  const [mode,setMode]=useState('login');
+  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+  const [phone,setPhone]=useState(''),[codeSent,setCodeSent]=useState(false),[cooldown,setCooldown]=useState(0);
+
+  useEffect(()=>{
+    if(cooldown<=0)return;
+    const timer=setInterval(()=>setCooldown(v=>Math.max(0,v-1)),1000);
+    return()=>clearInterval(timer);
+  },[cooldown]);
+
+  const switchMode=next=>{setMode(next);setError('');setNotice('');setCodeSent(false);setCooldown(0)};
+  const run=async fn=>{setBusy(true);setError('');setNotice('');try{return await fn()}catch(e){setError(e.message)}finally{setBusy(false)}};
+
+  const passwordSubmit=e=>run(async()=>{
+    e.preventDefault();const f=new FormData(e.currentTarget);
+    const body=mode==='register'?{name:f.get('name'),email:f.get('email'),phone:f.get('phone'),password:f.get('password')}:{identity:f.get('identity'),password:f.get('password')};
+    const d=await api(`/api/auth/${mode}`,{method:'POST',body:JSON.stringify(body)});onAuthed(d.user);
+  });
+
+  const requestOtp=()=>run(async()=>{
+    const d=await api('/api/auth/request-otp',{method:'POST',body:JSON.stringify({phone})});
+    setCodeSent(true);setCooldown(Number(d.resendAfter||60));setNotice('کد تایید برای شماره شما ارسال شد.');
+  });
+  const verifyOtp=e=>run(async()=>{
+    e.preventDefault();const f=new FormData(e.currentTarget);
+    const d=await api('/api/auth/verify-otp',{method:'POST',body:JSON.stringify({phone,code:f.get('code')})});onAuthed(d.user);
+  });
+
+  const requestReset=()=>run(async()=>{
+    const d=await api('/api/auth/password/request-reset',{method:'POST',body:JSON.stringify({phone})});
+    setCodeSent(true);setCooldown(Number(d.resendAfter||60));setNotice(d.message||'کد بازیابی ارسال شد.');
+  });
+  const resetPassword=e=>run(async()=>{
+    e.preventDefault();const f=new FormData(e.currentTarget);
+    const password=f.get('password'),confirmPassword=f.get('confirmPassword');
+    if(password!==confirmPassword)throw new Error('تکرار رمز عبور با رمز جدید یکسان نیست.');
+    const d=await api('/api/auth/password/reset',{method:'POST',body:JSON.stringify({phone,code:f.get('code'),password})});onAuthed(d.user);
+  });
+
+  const title={login:'ورود به حساب',register:'ساخت حساب کاربری',otp:'ورود با کد پیامکی',reset:'بازیابی رمز عبور'}[mode];
+  return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose?.()}><div className="auth-card sms-auth-card"><button className="modal-close" onClick={onClose}><X/></button><div className="auth-logo">SJ</div><h2>{title}</h2><p>{mode==='otp'?'شماره موبایل را وارد کن؛ کد یک‌بارمصرف برایت پیامک می‌شود.':mode==='reset'?'با کد پیامکی، رمز جدید را امن ثبت کن.':'سفارش‌ها و وضعیت خریدهایت را از حساب کاربری پیگیری کن.'}</p>
+    {error&&<div className="form-error"><AlertTriangle/> {error}</div>}{notice&&<div className="form-success"><CheckCircle2/> {notice}</div>}
+
+    {mode==='login'&&<form onSubmit={passwordSubmit}><label>ایمیل یا شماره موبایل<input name="identity" required autoComplete="username"/></label><label>رمز عبور<input name="password" type="password" required minLength="8" autoComplete="current-password"/></label><button className="primary auth-submit" disabled={busy}>{busy?<RefreshCw className="spin"/>:<LogIn/>}ورود</button><div className="auth-inline-actions"><button type="button" onClick={()=>switchMode('reset')}>رمز را فراموش کرده‌ام</button><button type="button" onClick={()=>switchMode('otp')}><MessageSquareText/> ورود با پیامک</button></div></form>}
+
+    {mode==='register'&&<form onSubmit={passwordSubmit}><label>نام و نام خانوادگی<input name="name" required minLength="2" autoComplete="name"/></label><label>شماره موبایل<input name="phone" placeholder="0912..." autoComplete="tel"/></label><label>ایمیل<input name="email" type="email" required autoComplete="email"/></label><label>رمز عبور<input name="password" type="password" required minLength="8" autoComplete="new-password"/></label><button className="primary auth-submit" disabled={busy}>{busy?<RefreshCw className="spin"/>:<UserPlus/>}ثبت‌نام</button></form>}
+
+    {mode==='otp'&&!codeSent&&<div className="sms-step"><label>شماره موبایل<input value={phone} onChange={e=>setPhone(e.target.value)} inputMode="tel" placeholder="0912..." autoComplete="tel"/></label><button className="primary auth-submit" type="button" disabled={busy||phone.length<10} onClick={requestOtp}>{busy?<RefreshCw className="spin"/>:<MessageSquareText/>}ارسال کد ورود</button></div>}
+    {mode==='otp'&&codeSent&&<form onSubmit={verifyOtp}><div className="phone-confirm"><Phone/><span><small>کد ارسال شد به</small><b dir="ltr">{phone}</b></span><button type="button" onClick={()=>{setCodeSent(false);setNotice('')}}>تغییر</button></div><label>کد ۶ رقمی<input className="otp-input" name="code" inputMode="numeric" pattern="[0-9]{6}" maxLength="6" required autoComplete="one-time-code" placeholder="------"/></label><button className="primary auth-submit" disabled={busy}>{busy?<RefreshCw className="spin"/>:<KeyRound/>}تایید و ورود</button><button className="resend-code" type="button" disabled={busy||cooldown>0} onClick={requestOtp}>{cooldown>0?`ارسال مجدد تا ${cooldown} ثانیه`:'ارسال مجدد کد'}</button></form>}
+
+    {mode==='reset'&&!codeSent&&<div className="sms-step"><label>شماره موبایل حساب<input value={phone} onChange={e=>setPhone(e.target.value)} inputMode="tel" placeholder="0912..." autoComplete="tel"/></label><button className="primary auth-submit" type="button" disabled={busy||phone.length<10} onClick={requestReset}>{busy?<RefreshCw className="spin"/>:<MessageSquareText/>}ارسال کد بازیابی</button></div>}
+    {mode==='reset'&&codeSent&&<form onSubmit={resetPassword}><div className="phone-confirm"><Phone/><span><small>بازیابی برای</small><b dir="ltr">{phone}</b></span><button type="button" onClick={()=>{setCodeSent(false);setNotice('')}}>تغییر</button></div><label>کد ۶ رقمی<input className="otp-input" name="code" inputMode="numeric" pattern="[0-9]{6}" maxLength="6" required autoComplete="one-time-code"/></label><label>رمز جدید<input name="password" type="password" minLength="8" required autoComplete="new-password"/></label><label>تکرار رمز جدید<input name="confirmPassword" type="password" minLength="8" required autoComplete="new-password"/></label><button className="primary auth-submit" disabled={busy}>{busy?<RefreshCw className="spin"/>:<KeyRound/>}ثبت رمز جدید</button><button className="resend-code" type="button" disabled={busy||cooldown>0} onClick={requestReset}>{cooldown>0?`ارسال مجدد تا ${cooldown} ثانیه`:'ارسال مجدد کد'}</button></form>}
+
+    <div className="auth-bottom-nav">{mode!=='login'&&<button onClick={()=>switchMode('login')}><ArrowRight/> ورود با رمز</button>}{mode!=='register'&&<button onClick={()=>switchMode('register')}>حساب نداری؟ ثبت‌نام</button>}{mode==='login'&&<button onClick={()=>switchMode('register')}>حساب نداری؟ ثبت‌نام کن</button>}</div>
+  </div></div>;
 }
 
 export function Checkout({cart,user,onNeedAuth,publicConfig,onSuccess,notify}){
@@ -25,7 +78,7 @@ export function Account({user,setUser,logout,onNeedAuth,notify}){
   useEffect(()=>{if(user)api('/api/orders/my').then(d=>setOrders(d.orders)).catch(()=>{});},[user]);
   if(!user)return <main className="inner account-empty"><User/><h1>حساب کاربری</h1><p>برای مشاهده سفارش‌ها وارد شوید.</p><button className="primary" onClick={onNeedAuth}>ورود / ثبت‌نام</button></main>;
   const save=async e=>{e.preventDefault();setBusy(true);const f=new FormData(e.currentTarget);try{const d=await api('/api/auth/profile',{method:'PATCH',body:JSON.stringify({name:f.get('name'),phone:f.get('phone')})});setUser(d.user);notify('پروفایل ذخیره شد')}catch(e){notify(e.message)}finally{setBusy(false)}};
-  return <main className="inner account-page"><div className="page-title"><span>حساب من</span><h1>{user.name}</h1><p>{user.email}</p></div><div className="account-grid"><section className="panel-card"><h3>اطلاعات حساب</h3><form onSubmit={save}><label>نام<input name="name" defaultValue={user.name}/></label><label>موبایل<input name="phone" defaultValue={user.phone}/></label><label>ایمیل<input value={user.email} disabled/></label><button className="primary" disabled={busy}><Save/> ذخیره</button></form><button className="danger-link" onClick={logout}><LogOut/> خروج از حساب</button></section><section className="panel-card orders-card"><h3>سفارش‌های من</h3>{!orders.length?<div className="muted-box">هنوز سفارشی ثبت نکرده‌اید.</div>:orders.map(o=><div className="order-row" key={o.id}><div><b>{o.order_code}</b><span>{dateFa(o.created_at)}</span></div><div><span className={'status '+o.status}>{statusFa[o.status]||o.status}</span><b>{toman(o.total)}</b></div></div>)}</section></div></main>;
+  return <main className="inner account-page"><div className="page-title"><span>حساب من</span><h1>{user.name}</h1><p>{user.email||user.phone||'حساب موبایلی'}</p></div><div className="account-grid"><section className="panel-card"><h3>اطلاعات حساب</h3><form onSubmit={save}><label>نام<input name="name" defaultValue={user.name}/></label><label>موبایل<input name="phone" defaultValue={user.phone}/></label><label>ایمیل<input value={user.email||'برای حساب پیامکی ثبت نشده'} disabled/></label><button className="primary" disabled={busy}><Save/> ذخیره</button></form><button className="danger-link" onClick={logout}><LogOut/> خروج از حساب</button></section><section className="panel-card orders-card"><h3>سفارش‌های من</h3>{!orders.length?<div className="muted-box">هنوز سفارشی ثبت نکرده‌اید.</div>:orders.map(o=><div className="order-row" key={o.id}><div><b>{o.order_code}</b><span>{dateFa(o.created_at)}</span></div><div><span className={'status '+o.status}>{statusFa[o.status]||o.status}</span><b>{toman(o.total)}</b></div></div>)}</section></div></main>;
 }
 
 export function InfoPage({type}){const data={services:['نصب تخصصی و تمیز','از نصب هدلایت و لنز تا دودی، دزدگیر و سیستم‌های امنیتی؛ با ابزار حرفه‌ای و ضمانت اجرای اسپرت جاوید.'],about:['ما ماشین‌ها را متفاوت می‌بینیم','اسپرت جاوید از قلب قم، با عشق به خودرو و تمرکز بر کالای اصیل، تجربه‌ای مطمئن برای علاقه‌مندان خودرو می‌سازد.'],contact:['کنارت هستیم','قم، خیابان شهیدان حسنی، نبش ۱۸ — شنبه تا پنجشنبه از ساعت ۹ تا ۲۱']}[type];return <main className="inner info"><span>اسپرت جاوید</span><h1>{data[0]}</h1><p>{data[1]}</p><div className="info-cards"><div><Phone/><b>مشاوره و سفارش</b><p>۰۲۵-۳۲۵۰ ۱۸۱۸</p></div><div><MapPin/><b>فروشگاه حضوری</b><p>قم، شهیدان حسنی، نبش ۱۸</p></div><div><ShieldCheck/><b>ضمانت خدمات</b><p>نصب تخصصی و پشتیبانی واقعی</p></div></div></main>}

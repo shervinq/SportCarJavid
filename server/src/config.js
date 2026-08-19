@@ -26,6 +26,7 @@ const envBool = (name, fallback) => {
   if (process.env[name] == null || process.env[name] === '') return fallback;
   return ['1', 'true', 'yes', 'on'].includes(String(process.env[name]).toLowerCase());
 };
+const envList = name => String(process.env[name] || '').split(',').map(v => v.trim()).filter(Boolean);
 
 const publicBaseUrl = process.env.PUBLIC_BASE_URL || raw.App.PublicBaseUrl;
 const isProduction = (process.env.NODE_ENV || 'development') === 'production';
@@ -51,10 +52,16 @@ export const config = {
   cookieSecure,
   sms: {
     enabled: envBool('SMS_ENABLED', false),
+    dryRun: envBool('SMS_DRY_RUN', false),
     apiKey: process.env.SMS_API_KEY || '',
     lineNumber: process.env.SMS_LINE_NUMBER || '',
     verifyTemplateId: Number(process.env.SMS_VERIFY_TEMPLATE_ID || 0),
-    endpoint: process.env.SMS_ENDPOINT || 'https://api.sms.ir/v1/send/verify'
+    resetTemplateId: Number(process.env.SMS_RESET_TEMPLATE_ID || process.env.SMS_VERIFY_TEMPLATE_ID || 0),
+    baseUrl: String(process.env.SMS_BASE_URL || 'https://api.sms.ir/v1').replace(/\/$/, ''),
+    adminMobiles: envList('SMS_ADMIN_MOBILES'),
+    otpTtlSeconds: Math.max(60, Number(process.env.SMS_OTP_TTL_SECONDS || 120)),
+    resendCooldownSeconds: Math.max(30, Number(process.env.SMS_RESEND_COOLDOWN_SECONDS || 60)),
+    maxOtpAttempts: Math.max(3, Number(process.env.SMS_MAX_OTP_ATTEMPTS || 5))
   },
   payment: {
     isSandboxMode: envBool('IS_SANDBOX_MODE', raw.Payment.IsSandboxMode),
