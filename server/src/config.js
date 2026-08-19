@@ -14,9 +14,7 @@ const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const deepMerge = (a, b) => {
   const out = { ...a };
   for (const [key, value] of Object.entries(b || {})) {
-    out[key] = value && typeof value === 'object' && !Array.isArray(value)
-      ? deepMerge(a?.[key] || {}, value)
-      : value;
+    out[key] = value && typeof value === 'object' && !Array.isArray(value) ? deepMerge(a?.[key] || {}, value) : value;
   }
   return out;
 };
@@ -36,18 +34,10 @@ const adminPassword = process.env.ADMIN_PASSWORD || raw.Admin.SeedPassword;
 const clientOrigin = process.env.CLIENT_ORIGIN || raw.App.ClientOrigin;
 const cookieSecure = envBool('COOKIE_SECURE', isProduction ? true : (raw.Security.CookieSecure ?? false));
 
-if (isProduction && jwtSecret.length < 32) {
-  throw new Error('JWT_SECRET must be at least 32 characters in production.');
-}
-if (isProduction && (adminPassword === 'Admin@123456' || adminPassword.length < 12)) {
-  throw new Error('ADMIN_PASSWORD must be changed and contain at least 12 characters before production.');
-}
-if (isProduction && !cookieSecure) {
-  throw new Error('COOKIE_SECURE must be true in production.');
-}
-if (isProduction && (!String(publicBaseUrl).startsWith('https://') || !String(clientOrigin).startsWith('https://'))) {
-  throw new Error('PUBLIC_BASE_URL and CLIENT_ORIGIN must use HTTPS in production.');
-}
+if (isProduction && jwtSecret.length < 32) throw new Error('JWT_SECRET must be at least 32 characters in production.');
+if (isProduction && (adminPassword === 'Admin@123456' || adminPassword.length < 12)) throw new Error('ADMIN_PASSWORD must be changed and contain at least 12 characters before production.');
+if (isProduction && !cookieSecure) throw new Error('COOKIE_SECURE must be true in production.');
+if (isProduction && (!String(publicBaseUrl).startsWith('https://') || !String(clientOrigin).startsWith('https://'))) throw new Error('PUBLIC_BASE_URL and CLIENT_ORIGIN must use HTTPS in production.');
 
 export const config = {
   env: process.env.NODE_ENV || 'development',
@@ -59,6 +49,13 @@ export const config = {
   uploadDir: path.resolve(serverRoot, process.env.UPLOAD_DIR || './data/uploads'),
   jwtSecret,
   cookieSecure,
+  sms: {
+    enabled: envBool('SMS_ENABLED', false),
+    apiKey: process.env.SMS_API_KEY || '',
+    lineNumber: process.env.SMS_LINE_NUMBER || '',
+    verifyTemplateId: Number(process.env.SMS_VERIFY_TEMPLATE_ID || 0),
+    endpoint: process.env.SMS_ENDPOINT || 'https://api.sms.ir/v1/send/verify'
+  },
   payment: {
     isSandboxMode: envBool('IS_SANDBOX_MODE', raw.Payment.IsSandboxMode),
     merchantId: process.env.ZARINPAL_MERCHANT_ID || raw.Payment.ZarinPal.MerchantId || '',
