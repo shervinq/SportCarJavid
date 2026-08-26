@@ -66,10 +66,9 @@ app.get('/api/payments/zarinpal/callback', asyncRoute(async (req,res) => {
   if(payment.status==='paid' || payment.order_payment_status==='paid')return res.redirect(`${config.clientOrigin}/?payment=success&order=${payment.order_id}&ref=${encodeURIComponent(payment.ref_id || '')}`);
 
   if(status!=='OK'){
-    const current=db.prepare('SELECT status FROM payments WHERE id=?').get(payment.id);
-    if(current?.status==='pending'){
+    const failed=db.prepare("UPDATE payments SET status='failed',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'").run(payment.id);
+    if(Number(failed.changes)===1){
       restoreOrderStock(payment.order_id);
-      db.prepare("UPDATE payments SET status='failed',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'").run(payment.id);
       db.prepare("UPDATE orders SET status='payment_failed',payment_status='failed',updated_at=CURRENT_TIMESTAMP WHERE id=? AND payment_status='pending'").run(payment.order_id);
       audit(null,'payment_cancelled','order',payment.order_id,{authority});
     }
@@ -87,13 +86,14 @@ app.get('/api/payments/zarinpal/callback', asyncRoute(async (req,res) => {
       .run(verified.refId,JSON.stringify(verified.response),payment.id);
     if(Number(changed.changes)!==1){
       const existingPaid=db.prepare("SELECT ref_id FROM payments WHERE id=? AND status='paid'").get(payment.id);
-      return {newlyPaid:false,refId:existingPaid?.ref_id || verified.refId};
+      return existingPaid ? {newlyPaid:false,refId:existingPaid.ref_id || verified.refId,conflict:false} : {newlyPaid:false,refId:'',conflict:true};
     }
     const orderChanged=db.prepare("UPDATE orders SET payment_status='paid',status='processing',expires_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND payment_status<>'paid'").run(payment.order_id);
     if(Number(orderChanged.changes)===1 && payment.coupon_code)db.prepare('UPDATE coupons SET used_count=used_count+1 WHERE code=? COLLATE NOCASE').run(payment.coupon_code);
     audit(null,'payment_verified','order',payment.order_id,{authority,refId:verified.refId,code:verified.code});
-    return {newlyPaid:true,refId:verified.refId};
+    return {newlyPaid:true,refId:verified.refId,conflict:false};
   });
+  if(result.conflict)return res.redirect(`${config.clientOrigin}/?payment=failed&order=${payment.order_id}&reason=state-conflict`);
   res.redirect(`${config.clientOrigin}/?payment=success&order=${payment.order_id}&ref=${encodeURIComponent(result.refId || '')}`);
 }));
 }
