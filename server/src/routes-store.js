@@ -2,7 +2,7 @@ import { db, audit, releaseExpiredOrders, transaction } from './db.js';
 import { requireAuth } from './auth.js';
 import { config } from './config.js';
 import { cleanText, normalizePhone, orderCode, toInt } from './utils.js';
-import { calculateCoupon, getOrderForUser, productDto } from './store-service.js';
+import { calculateCoupon, calculateShipping, getOrderForUser, productDto } from './store-service.js';
 
 export function registerStoreRoutes(app) {
 app.get('/api/products', (req,res) => {
@@ -34,7 +34,7 @@ app.post('/api/orders/quote', requireAuth, (req,res) => {
   }
   const {discount} = calculateCoupon(cleanText(req.body?.couponCode,50),subtotal);
   const shippingMethod=cleanText(req.body?.shippingMethod || 'post',40);
-  const shipping = shippingMethod==='pickup' || subtotal-discount >= config.store.freeShippingThreshold ? 0 : config.store.defaultShippingCost;
+  const shipping=calculateShipping({subtotal,discount,shippingMethod,province:cleanText(req.body?.province,80),city:cleanText(req.body?.city,80)});
   res.json({ subtotal, discount, shipping, total: subtotal-discount+shipping });
 });
 
@@ -43,7 +43,8 @@ app.post('/api/orders', requireAuth, (req,res) => {
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
   if (!items.length || items.length > 50) return res.status(400).json({ message:'سبد خرید معتبر نیست.' });
   const receiverName=cleanText(req.body?.receiverName,100), receiverPhone=normalizePhone(req.body?.receiverPhone), province=cleanText(req.body?.province,80), city=cleanText(req.body?.city,80), address=cleanText(req.body?.address,500), postalCode=cleanText(req.body?.postalCode,20), shippingMethod=cleanText(req.body?.shippingMethod || 'post',40), notes=cleanText(req.body?.notes,500), couponCode=cleanText(req.body?.couponCode,50);
-  if (receiverName.length<2 || receiverPhone.length<10 || address.length<8 || !city) return res.status(400).json({ message:'اطلاعات گیرنده، شهر، آدرس و موبایل را کامل کنید.' });
+  if (receiverName.length<2 || !/^09\d{9}$/.test(receiverPhone) || address.length<8 || !city) return res.status(400).json({ message:'اطلاعات گیرنده، شهر، آدرس و موبایل را کامل کنید.' });
+  if (!['post','courier','pickup'].includes(shippingMethod)) return res.status(400).json({ message:'روش ارسال نامعتبر است.' });
 
   const created = transaction(() => {
     const normalized=[]; let subtotal=0;
@@ -54,7 +55,7 @@ app.post('/api/orders', requireAuth, (req,res) => {
       normalized.push({p,qty}); subtotal += Number(p.price)*qty;
     }
     const {discount,coupon}=calculateCoupon(couponCode,subtotal);
-    const shipping=shippingMethod==='pickup' || subtotal-discount >= config.store.freeShippingThreshold ? 0 : config.store.defaultShippingCost;
+    const shipping=calculateShipping({subtotal,discount,shippingMethod,province,city});
     const total=subtotal-discount+shipping;
     const code=orderCode();
     const expiresAt=new Date(Date.now()+config.store.pendingOrderExpiryMinutes*60_000).toISOString();
@@ -73,7 +74,6 @@ app.post('/api/orders', requireAuth, (req,res) => {
   });
   res.status(201).json({ order:created });
 });
-
 
 app.get('/api/orders/my', requireAuth, (req,res) => {
   releaseExpiredOrders();

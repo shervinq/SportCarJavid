@@ -1,4 +1,5 @@
 import { db } from './db.js';
+import { config } from './config.js';
 
 export const bool = v => v === true || v === 1 || v === '1' || v === 'true';
 export const productDto = p => {
@@ -19,6 +20,13 @@ export function calculateCoupon(code, subtotal) {
   if (subtotal < coupon.min_total) throw Object.assign(new Error('مبلغ سفارش برای این کد تخفیف کافی نیست.'), { status:400 });
   const discount = coupon.type === 'percent' ? Math.floor(subtotal * Math.min(coupon.value,100) / 100) : Math.min(coupon.value, subtotal);
   return { discount, coupon };
+}
+
+export function calculateShipping({ subtotal, discount = 0, shippingMethod = 'post', province = '', city = '' }) {
+  const payableProducts = Math.max(0, Number(subtotal) - Number(discount));
+  if (shippingMethod === 'pickup' || payableProducts >= config.store.freeShippingThreshold) return 0;
+  const place = `${province} ${city}`.replace(/ي/g,'ی').replace(/ك/g,'ک').trim();
+  return /تهران/.test(place) ? config.store.tehranShippingCost : config.store.defaultShippingCost;
 }
 
 export function getOrderForUser(id, user) {

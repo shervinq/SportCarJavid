@@ -15,9 +15,11 @@ import { registerAdminRoutes } from './routes-admin.js';
 import { smsPublicStatus } from './sms.js';
 import { ensureSmsSchema } from './sms-store.js';
 import { registerSmsHooks } from './sms-hooks.js';
+import { ensureProductionSchema, productionReadiness } from './production-hardening.js';
 
 seedDatabase();
 ensureSmsSchema();
+ensureProductionSchema();
 releaseExpiredOrders();
 setInterval(() => { try { releaseExpiredOrders(); } catch (e) { console.error('Order cleanup failed', e); } }, 5 * 60 * 1000).unref();
 
@@ -33,12 +35,15 @@ app.use(optionalAuth);
 registerSmsHooks(app);
 app.use('/uploads', express.static(config.uploadDir, { maxAge: config.isProduction ? '7d' : 0, immutable: false }));
 
+const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 500, standardHeaders: 'draft-8', legacyHeaders: false, skip: req => req.path === '/health' });
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
 const smsLimiter = rateLimit({ windowMs: 10 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false, message: { message:'تعداد درخواست پیامک زیاد است. چند دقیقه بعد دوباره تلاش کنید.' } });
 const asyncRoute = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+app.use('/api', apiLimiter);
 
 app.get('/api/health', (_req,res) => res.json({ status:'ok', mode: config.payment.isSandboxMode ? 'sandbox-bypass' : 'zarinpal', sms:smsPublicStatus(), time:new Date().toISOString() }));
 app.get('/api/config/public', (_req,res) => res.json({ isSandboxMode: config.payment.isSandboxMode, freeShippingThreshold: config.store.freeShippingThreshold, sms:smsPublicStatus() }));
+app.get('/api/admin/readiness', requireAdmin, (_req,res) => res.json(productionReadiness()));
 app.get('/api/admin/sms/logs', requireAdmin, (_req,res) => {
   const logs=db.prepare('SELECT id,kind,mobile,status,provider_message_id,error,entity_id,created_at FROM sms_logs ORDER BY id DESC LIMIT 200').all();
   const stats=db.prepare("SELECT status,COUNT(*) AS count FROM sms_logs GROUP BY status").all();
